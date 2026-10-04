@@ -1,0 +1,23 @@
+name = "drone-log-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Free-tier D1 database. Create it with `npx wrangler d1 create drone-log`
+# and paste the database_id it prints here.
+[[d1_databases]]
+binding = "DB"
+database_name = "drone-log"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+
+# Daily cleanup of old rows (see RETENTION_DAYS).
+[triggers]
+crons = ["17 4 * * *"]
+
+[vars]
+RETENTION_DAYS = "365"
+# Origin allowed to read the public API from a browser.
+ALLOWED_ORIGIN = "https://copcity.net"
+
+# Node tokens are a secret, set with:
+#   npx wrangler secret put NODE_TOKENS
+# as JSON mapping token -> node name, e.g. {"k3v9...": "eastside-window"}

@@ -55,24 +55,45 @@ the logger retries every 5 s.
 ## Build and flash
 
 ```
-pio run                 # build
-pio run -t upload       # flash over USB-C
+pio run -e cardputer-adv            # build the handheld
+pio run -e cardputer-adv -t upload  # flash over USB-C
 pio device monitor      # serial log
 ```
 
 The project uses the pioarduino build of platform-espressif32 (Arduino
 core 3.x) and fetches every library from GitHub.
 
-## Log viewer (copcity.net)
+## Fixed nodes
 
-`docs/` is a static web page for reviewing the SD card logs. Drop one or more
-`rid_NNNN.csv` files onto it to see each aircraft's track and operator
-position on a map, filter by time, and read the per-row detail. Files are
-parsed in the browser and never uploaded. Leaflet is vendored under
-`docs/vendor/`; only the OpenStreetMap tiles are fetched from the network.
+`env:node` builds the same receiver for a plain ESP32-S3 dev board
+(`esp32-s3-devkitc-1`) with a microSD breakout on SPI (SCK 12, MISO 13,
+MOSI 11, CS 10). There's no screen; status is printed on the serial port.
+Parts are roughly $10–15 per node.
 
-It is published with GitHub Pages at copcity.net (`docs/CNAME`): in the repo
-settings, set Pages to deploy from the `main` branch, `/docs` folder, and point
-the domain's DNS at GitHub Pages (apex `A` records 185.199.108.153,
-185.199.109.153, 185.199.110.153, 185.199.111.153, plus a `www` `CNAME` to
-`clownpenisdotfart.github.io`).
+```
+pio run -e node -t upload
+```
+
+The node always logs to SD in the same CSV format. To feed the live map, copy
+`include/node_config.example.h` to `include/node_config.h` and fill in the
+WiFi network and node token. Once a minute the node pauses WiFi capture for a
+few seconds (Bluetooth keeps listening), joins the network, uploads the
+aircraft tracks it heard over HTTPS, and disconnects. It never transmits to
+drones, and operator location is never uploaded.
+
+## Website (copcity.net)
+
+`docs/` is the public site, served by GitHub Pages (`docs/CNAME`):
+
+- `index.html`: live map of aircraft heard by the fixed nodes, with receivers
+  online, aircraft per day and an optional activity-hotspot layer. It reads
+  the API in `server/` (URL set in `docs/config.js`).
+- `logs.html`: drop CSV logs from any receiver to map them. Files are read in
+  the browser and never uploaded, so operator positions in the logs stay
+  private.
+
+To publish, set Pages to deploy from the `main` branch, `/docs` folder in the
+repo settings, and point the domain's DNS at GitHub Pages: apex `A` records
+185.199.108.153, 185.199.109.153, 185.199.110.153 and 185.199.111.153, plus
+a `www` `CNAME` to `clownpenisdotfart.github.io`. Deploying the API is
+covered in `server/README.md`.

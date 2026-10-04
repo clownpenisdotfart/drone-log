@@ -3,322 +3,252 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Drone Log Viewer</title>
+<title>Drone Map</title>
+<meta name="description" content="Community map of drones broadcasting FAA Remote ID around the city.">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <script src="vendor/leaflet/leaflet.js"></script>
+<script src="config.js"></script>
 <style>
   :root {
     color-scheme: dark;
     --bg: #0b0d0f; --panel: #12161a; --text: #e8eef2; --muted: #7d8a94;
     --line: #222a31; --sel: #1a2a2c;
     --orange: #ff8a1f; --green: #3dff8f; --teal: #19e6d4; --warn: #ff4d5e;
-    --accent: var(--orange);
+    --mono: ui-monospace, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-    border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--teal); }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; height: 50px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
   header h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: .02em; color: var(--orange); }
   header h1 span { color: var(--teal); }
-  header .note { color: var(--muted); font-size: 12px; }
-  button, label.btn { font: inherit; border: 1px solid var(--line); background: var(--bg);
-    color: var(--text); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
-  button:hover, label.btn:hover { border-color: var(--teal); color: var(--teal); }
-  label.btn { border-color: var(--orange); color: var(--orange); }
-  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100% - 50px); }
+  header nav { margin-left: auto; display: flex; gap: 14px; font-size: 13px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; color: var(--green); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  main { display: grid; grid-template-columns: 340px 1fr; height: calc(100% - 50px); }
   aside { overflow: auto; border-right: 1px solid var(--line); background: var(--panel); }
-  #map { height: 100%; }
+  #map { height: 100%; background: var(--bg); }
   .section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
-  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--teal); margin: 0 0 8px; font-weight: 600; }
-  .drone { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: start;
-    padding: 8px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .drone.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--green); }
-  .drone .sw { width: 12px; height: 12px; border-radius: 3px; margin-top: 3px; }
-  .drone .id { font-weight: 600; word-break: break-all; font-family: ui-monospace, Menlo, Consolas, monospace; }
-  .drone .meta { color: var(--muted); font-size: 12px; }
-  .drone input { margin-top: 3px; }
-  .emerg { color: var(--warn); font-weight: 600; }
-  #drop { position: fixed; inset: 0; background: rgba(255, 138, 31, .12); border: 3px dashed var(--orange); color: var(--orange);
-    display: none; align-items: center; justify-content: center; font-size: 20px; z-index: 2000; }
-  #drop.on { display: flex; }
-  #empty { padding: 24px 16px; color: var(--muted); }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums;
-    font-family: ui-monospace, Menlo, Consolas, monospace; }
-  td:nth-child(2) { color: var(--green); }
-  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
-  #rows { max-height: 260px; overflow: auto; }
-  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
-  .kv span:nth-child(odd) { color: var(--muted); }
-  input[type=range] { width: 100%; accent-color: var(--teal); }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--teal);
+    margin: 0 0 8px; font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .tile b { display: block; font: 700 20px/1.1 var(--mono); color: var(--orange); }
+  .tile span { font-size: 11px; color: var(--muted); }
+  .tile:nth-child(2) b { color: var(--green); }
+  .tile:nth-child(3) b { color: var(--teal); }
+  .drone { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; padding: 8px 16px;
+    border-bottom: 1px solid var(--line); cursor: pointer; }
+  .drone:hover, .drone.sel { background: var(--sel); }
+  .drone .sw { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; }
+  .drone .id { font: 600 13px var(--mono); word-break: break-all; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .emerg { color: var(--warn); font-weight: 700; }
+  .empty { padding: 12px 16px; color: var(--muted); }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 70px; }
+  .bars div { flex: 1; background: var(--orange); border-radius: 2px 2px 0 0; min-height: 2px; opacity: .85; }
+  .bars div:hover { background: var(--teal); }
+  .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .seg button { font: 12px var(--mono); background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+  .seg button.on { color: var(--orange); border-color: var(--orange); }
+  label.toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-top: 8px; }
   input[type=checkbox] { accent-color: var(--green); }
-  #summaryText { color: var(--green); font-family: ui-monospace, Menlo, Consolas, monospace; }
-  #map { background: #0b0d0f; }
+  .about { font-size: 12px; color: var(--muted); }
+  .about p { margin: 0 0 8px; }
   .leaflet-bar a { background: var(--panel); color: var(--orange); border-color: var(--line); }
   .leaflet-bar a:hover { background: var(--sel); color: var(--teal); }
   .leaflet-container .leaflet-control-attribution { background: rgba(18, 22, 26, .8); color: var(--muted); }
-  .leaflet-control-attribution a { color: var(--teal); }
-  .leaflet-tooltip { background: var(--panel); color: var(--text); border-color: var(--line); }
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border-color: var(--line); font-family: var(--mono); }
   @media (max-width: 760px) {
     main { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
     aside { order: 2; border-right: 0; border-top: 1px solid var(--line); }
+    header nav a.files { display: none; }
   }
 </style>
 </head>
 <body>
 <header>
   <h1>DRONE<span>LOG</span></h1>
-  <label class="btn">Open CSV files<input id="file" type="file" accept=".csv,text/csv" multiple hidden></label>
-  <button id="clear">Clear</button>
-  <span class="note">Files are read in your browser and never uploaded.</span>
+  <span class="live"><span class="dot off" id="dot"></span><span id="liveText">connecting</span></span>
+  <nav><a href="#about">About</a><a class="files" href="logs.html">Open log files</a></nav>
 </header>
 <main>
   <aside>
-    <div id="empty">Drop <code>rid_NNNN.csv</code> logs from the Cardputer's SD card here, or use "Open CSV files".</div>
-    <div class="section" id="summary" hidden>
-      <h2>Loaded</h2>
-      <div id="summaryText"></div>
-      <div style="margin-top:10px">
-        <h2>Time window</h2>
-        <input type="range" id="tStart" min="0" max="1000" value="0">
-        <input type="range" id="tEnd" min="0" max="1000" value="1000">
-        <div class="meta" id="tLabel" style="font-size:12px;color:var(--muted)"></div>
+    <div class="section">
+      <h2>Right now</h2>
+      <div class="seg" id="window">
+        <button data-min="30" class="on">30 min</button><button data-min="180">3 h</button><button data-min="1440">24 h</button>
+      </div>
+      <div class="tiles">
+        <div class="tile"><b id="nDrones">–</b><span>aircraft</span></div>
+        <div class="tile"><b id="nAir">–</b><span>airborne</span></div>
+        <div class="tile"><b id="nNodes">–</b><span>receivers online</span></div>
       </div>
     </div>
-    <div id="list"></div>
-    <div class="section" id="detail" hidden>
-      <h2>Selected</h2>
-      <div class="kv" id="detailKv"></div>
-      <div id="rows" style="margin-top:10px"></div>
+    <div id="list"><div class="empty">Waiting for data…</div></div>
+    <div class="section">
+      <h2>Last 30 days</h2>
+      <div class="meta" id="statsText">–</div>
+      <div class="bars" id="bars" style="margin-top:8px"></div>
+      <div class="meta" style="margin-top:4px">aircraft heard per day</div>
+      <label class="toggle"><input type="checkbox" id="hot"> Show activity hotspots on the map</label>
+    </div>
+    <div class="section about" id="about">
+      <h2>About</h2>
+      <p>Most drones in the US must broadcast a public Remote ID signal with their position, height and speed.
+        Community receivers around town pick up those broadcasts and this map shows them.</p>
+      <p>Receivers only listen. They never transmit to or interfere with drones. Only aircraft are shown:
+        no phones, cars or people are tracked, and pilot locations are not published.</p>
+      <p>Some aircraft, including some public-safety drones, may not broadcast Remote ID, and receivers only
+        cover part of the city. A quiet map does not mean nothing is flying.</p>
+      <p>Have a log from a handheld receiver? <a href="logs.html">Open it here</a>; it stays in your browser.</p>
     </div>
   </aside>
   <div id="map"></div>
 </main>
-<div id="drop">Drop CSV logs to load</div>
 
 <script>
+const API = (window.DRONELOG_API || '').replace(/\/$/, '');
 const COLORS = ['#ff8a1f', '#3dff8f', '#19e6d4', '#ff4fd8', '#ffe14d', '#4da6ff', '#b6ff3d', '#ff6b6b', '#a78bff', '#ffb36b'];
+const STALE_MS = 2 * 60 * 1000;   // fade aircraft not heard for this long
+const NODE_ONLINE_MS = 10 * 60 * 1000;
 
 const map = L.map('map', { preferCanvas: true }).setView([39.5, -98.35], 4);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  maxZoom: 20, subdomains: 'abcd',
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
 }).addTo(map);
-const layer = L.layerGroup().addTo(map);
+const trackLayer = L.layerGroup().addTo(map);
+const hotLayer = L.layerGroup();
 
-let rows = [];          // every parsed row, across files
-let drones = new Map(); // key -> {key, color, rows, visible}
+const colorOf = new Map();
+const colorFor = id => {
+  if (!colorOf.has(id)) colorOf.set(id, COLORS[colorOf.size % COLORS.length]);
+  return colorOf.get(id);
+};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = ms => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : Math.round(s / 3600) + 'h';
+};
+
+let minutes = 30;
 let selected = null;
-let tMin = 0, tMax = 0;
+let fitted = false;
+let lastLive = null;
 
-// Minimal RFC 4180 CSV parser (handles quoted fields and doubled quotes).
-function parseCsv(text) {
-  const out = []; let row = []; let f = ''; let q = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (q) {
-      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
-      else f += c;
-    } else if (c === '"') q = true;
-    else if (c === ',') { row.push(f); f = ''; }
-    else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++;
-      row.push(f); f = ''; if (row.length > 1 || row[0] !== '') out.push(row); row = [];
-    } else f += c;
-  }
-  if (f !== '' || row.length) { row.push(f); out.push(row); }
-  return out;
-}
-
-const num = v => (v === '' || v == null) ? null : Number(v);
-
-function loadText(name, text) {
-  const table = parseCsv(text);
-  if (!table.length) return 0;
-  const head = table[0];
-  if (!head.includes('mac') || !head.includes('uptime_ms')) {
-    alert(name + ' does not look like a drone-log CSV.');
-    return 0;
-  }
-  const idx = Object.fromEntries(head.map((h, i) => [h, i]));
-  const g = (r, k) => r[idx[k]] ?? '';
-  // Rows without wall-clock time are placed relative to the first timed row
-  // in the same file using uptime_ms, when possible.
-  const parsed = table.slice(1).map(r => ({
-    file: name,
-    uptime: num(g(r, 'uptime_ms')),
-    utc: g(r, 'utc') ? Date.parse(g(r, 'utc')) : null,
-    transport: g(r, 'transport'), mac: g(r, 'mac'), rssi: num(g(r, 'rssi_dbm')),
-    id: g(r, 'uas_id'), idType: g(r, 'id_type'), uaType: g(r, 'ua_type'), status: g(r, 'status'),
-    lat: num(g(r, 'lat')), lon: num(g(r, 'lon')),
-    altGeo: num(g(r, 'alt_geo_m')), altBaro: num(g(r, 'alt_baro_m')), height: num(g(r, 'height_m')),
-    speed: num(g(r, 'speed_h_mps')), vspeed: num(g(r, 'speed_v_mps')), dir: num(g(r, 'direction_deg')),
-    opLat: num(g(r, 'op_lat')), opLon: num(g(r, 'op_lon')), opAlt: num(g(r, 'op_alt_m')),
-    operatorId: g(r, 'operator_id'), selfId: g(r, 'self_id'),
-  }));
-  const anchor = parsed.find(r => r.utc != null && r.uptime != null);
-  for (const r of parsed) {
-    if (r.utc == null && anchor && r.uptime != null) r.utc = anchor.utc + (r.uptime - anchor.uptime);
-    // Without any time reference, fall back to uptime so ordering still works.
-    r.t = r.utc ?? r.uptime ?? 0;
-    r.timed = r.utc != null;
-  }
-  rows.push(...parsed);
-  return parsed.length;
-}
-
-function rebuild() {
-  const prevVisible = new Map([...drones].map(([k, d]) => [k, d.visible]));
-  drones = new Map();
-  rows.sort((a, b) => a.t - b.t);
-  for (const r of rows) {
-    const key = r.id || r.mac;
-    if (!drones.has(key)) {
-      drones.set(key, { key, color: COLORS[drones.size % COLORS.length], rows: [],
-        visible: prevVisible.get(key) ?? true });
-    }
-    drones.get(key).rows.push(r);
-  }
-  tMin = rows.length ? rows[0].t : 0;
-  tMax = rows.length ? rows[rows.length - 1].t : 0;
-  document.getElementById('tStart').value = 0;
-  document.getElementById('tEnd').value = 1000;
-  if (selected && !drones.has(selected)) selected = null;
-  render(true);
-}
-
-function windowBounds() {
-  const a = Number(document.getElementById('tStart').value);
-  const b = Number(document.getElementById('tEnd').value);
-  const lo = Math.min(a, b), hi = Math.max(a, b);
-  return [tMin + (tMax - tMin) * lo / 1000, tMin + (tMax - tMin) * hi / 1000];
-}
-
-const fmtTime = (t, timed) => timed ? new Date(t).toISOString().replace('T', ' ').slice(0, 19) + 'Z'
-  : 'uptime ' + Math.round(t / 1000) + 's';
-const fmt = (v, d = 1, unit = '') => v == null || Number.isNaN(v) ? '–' : v.toFixed(d) + unit;
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-function render(fit) {
-  const has = rows.length > 0;
-  document.getElementById('empty').hidden = has;
-  document.getElementById('summary').hidden = !has;
-  layer.clearLayers();
-  if (!has) {
-    document.getElementById('list').innerHTML = '';
-    document.getElementById('detail').hidden = true;
-    return;
-  }
-  const [lo, hi] = windowBounds();
-  const timed = rows.some(r => r.timed);
-  document.getElementById('tLabel').textContent = fmtTime(lo, timed) + '  →  ' + fmtTime(hi, timed);
-  const files = new Set(rows.map(r => r.file));
-  document.getElementById('summaryText').textContent =
-    `${rows.length} rows, ${drones.size} aircraft, ${files.size} file${files.size > 1 ? 's' : ''}`;
-
+function renderLive(data) {
+  lastLive = data;
+  const now = Date.now();
+  trackLayer.clearLayers();
   const bounds = [];
-  const list = [];
-  for (const d of drones.values()) {
-    const inWin = d.rows.filter(r => r.t >= lo && r.t <= hi);
-    const pts = inWin.filter(r => r.lat != null && r.lon != null);
-    const ops = inWin.filter(r => r.opLat != null && r.opLon != null);
-    const last = inWin[inWin.length - 1] || d.rows[d.rows.length - 1];
-    const emerg = inWin.some(r => r.status === 'EMERG');
-    const maxH = Math.max(...inWin.map(r => r.height ?? r.altGeo ?? -Infinity));
-
-    if (d.visible && pts.length) {
-      const ll = pts.map(r => [r.lat, r.lon]);
-      const isSel = d.key === selected;
-      L.polyline(ll, { color: d.color, weight: isSel ? 5 : 3, opacity: isSel ? 1 : .8 })
-        .on('click', () => select(d.key)).addTo(layer);
-      const p = pts[pts.length - 1];
-      L.circleMarker([p.lat, p.lon], { radius: isSel ? 8 : 6, color: '#0b0d0f', weight: 2,
-        fillColor: d.color, fillOpacity: 1 })
-        .bindTooltip(esc(d.key)).on('click', () => select(d.key)).addTo(layer);
-      bounds.push(...ll);
-    }
-    if (d.visible && ops.length) {
-      const o = ops[ops.length - 1];
-      L.circleMarker([o.opLat, o.opLon], { radius: 6, color: d.color, weight: 3, fillOpacity: 0 })
-        .bindTooltip('Operator / takeoff: ' + esc(d.key)).addTo(layer);
-      bounds.push([o.opLat, o.opLon]);
-    }
-    list.push(`<div class="drone${d.key === selected ? ' sel' : ''}" data-key="${esc(d.key)}">
-      <input type="checkbox" ${d.visible ? 'checked' : ''} data-toggle="${esc(d.key)}" title="Show on map">
-      <div><div class="id"><span class="sw" style="display:inline-block;background:${d.color};margin-right:6px;vertical-align:-1px"></span>${esc(d.key)}</div>
-        <div class="meta">${esc(last.uaType || 'unknown type')} · ${esc([...new Set(d.rows.map(r => r.transport))].join(', '))}
-          ${emerg ? ' · <span class="emerg">EMERGENCY</span>' : ''}</div>
-        <div class="meta">${inWin.length} rows in window · max ${fmt(Number.isFinite(maxH) ? maxH : null, 0, ' m')}</div></div>
-      <div class="meta">${fmtTime(last.t, last.timed).slice(11)}</div>
-    </div>`);
+  const drones = [...data.drones].sort((a, b) => b.last_ts - a.last_ts);
+  for (const d of drones) {
+    const c = colorFor(d.id);
+    const stale = now - d.last_ts > STALE_MS;
+    const ll = d.points.map(p => [p[1], p[2]]);
+    const isSel = d.id === selected;
+    L.polyline(ll, { color: c, weight: isSel ? 5 : 3, opacity: stale ? .35 : .9 })
+      .on('click', () => select(d.id)).addTo(trackLayer);
+    const p = d.points[d.points.length - 1];
+    L.circleMarker([p[1], p[2]], { radius: isSel ? 8 : 6, color: '#0b0d0f', weight: 2,
+      fillColor: d.status === 'EMERG' ? '#ff4d5e' : c, fillOpacity: stale ? .4 : 1 })
+      .bindTooltip(`${esc(d.id)}<br>${p[3] != null ? Math.round(p[3]) + ' m · ' : ''}${ago(now - d.last_ts)} ago`)
+      .on('click', () => select(d.id)).addTo(trackLayer);
+    bounds.push(...ll);
   }
-  document.getElementById('list').innerHTML = list.join('');
-  if (fit && bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
-  renderDetail(lo, hi);
+  if (!fitted && bounds.length) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); fitted = true; }
+
+  const online = data.nodes.filter(n => now - n.last_seen < NODE_ONLINE_MS).length;
+  document.getElementById('nDrones').textContent = drones.length;
+  document.getElementById('nAir').textContent = drones.filter(d => d.status === 'airborne' && now - d.last_ts < STALE_MS).length;
+  document.getElementById('nNodes').textContent = `${online}/${data.nodes.length}`;
+  document.getElementById('list').innerHTML = drones.length ? drones.map(d => {
+    const p = d.points[d.points.length - 1];
+    return `<div class="drone${d.id === selected ? ' sel' : ''}" data-id="${esc(d.id)}">
+      <span class="sw" style="background:${colorFor(d.id)}"></span>
+      <div><div class="id">${esc(d.id)}</div>
+        <div class="meta">${esc(d.ua_type || 'aircraft')} · ${d.status === 'EMERG' ? '<span class="emerg">EMERGENCY</span>' : esc(d.status || '')}
+          ${p[3] != null ? ' · ' + Math.round(p[3]) + ' m' : ''}${d.speed != null ? ' · ' + d.speed.toFixed(1) + ' m/s' : ''}</div></div>
+      <div class="meta">${ago(now - d.last_ts)}</div></div>`;
+  }).join('') : `<div class="empty">No aircraft heard in the last ${minutes >= 60 ? minutes / 60 + ' h' : minutes + ' min'}.</div>`;
 }
 
-function renderDetail(lo, hi) {
-  const box = document.getElementById('detail');
-  const d = selected && drones.get(selected);
-  if (!d) { box.hidden = true; return; }
-  box.hidden = false;
-  const inWin = d.rows.filter(r => r.t >= lo && r.t <= hi);
-  const last = inWin[inWin.length - 1] || d.rows[d.rows.length - 1];
-  const first = inWin[0] || d.rows[0];
-  const kv = [
-    ['ID', d.key], ['MACs', [...new Set(d.rows.map(r => r.mac))].join(', ')],
-    ['Type', last.uaType || '–'], ['Operator ID', last.operatorId || '–'], ['Self ID', last.selfId || '–'],
-    ['First', fmtTime(first.t, first.timed)], ['Last', fmtTime(last.t, last.timed)],
-    ['Last position', last.lat != null ? `${last.lat.toFixed(6)}, ${last.lon.toFixed(6)}` : '–'],
-    ['Operator', last.opLat != null ? `${last.opLat.toFixed(6)}, ${last.opLon.toFixed(6)}` : '–'],
-  ];
-  document.getElementById('detailKv').innerHTML = kv.map(([k, v]) => `<span>${k}</span><span>${esc(v)}</span>`).join('');
-  const body = inWin.slice(-500).reverse().map(r => `<tr>
-    <td>${fmtTime(r.t, r.timed).slice(11)}</td><td>${esc(r.status)}</td>
-    <td>${r.lat != null ? r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) : '–'}</td>
-    <td>${fmt(r.height ?? r.altGeo, 0)}</td><td>${fmt(r.speed, 1)}</td><td>${fmt(r.rssi, 0)}</td></tr>`).join('');
-  document.getElementById('rows').innerHTML = `<table><thead><tr><th>Time</th><th>Status</th><th>Position</th>
-    <th>Hgt m</th><th>m/s</th><th>dBm</th></tr></thead><tbody>${body}</tbody></table>`;
-}
-
-function select(key) {
-  selected = selected === key ? null : key;
-  render(false);
-  const d = selected && drones.get(selected);
-  const pts = d ? d.rows.filter(r => r.lat != null).map(r => [r.lat, r.lon]) : [];
-  if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 18 });
+function select(id) {
+  selected = selected === id ? null : id;
+  if (lastLive) renderLive(lastLive);
+  const d = lastLive && lastLive.drones.find(x => x.id === selected);
+  if (d) map.fitBounds(d.points.map(p => [p[1], p[2]]), { padding: [50, 50], maxZoom: 17 });
 }
 
 document.getElementById('list').addEventListener('click', e => {
-  const t = e.target.closest('[data-toggle]');
-  if (t) { drones.get(t.dataset.toggle).visible = t.checked; render(false); return; }
   const row = e.target.closest('.drone');
-  if (row) select(row.dataset.key);
+  if (row) select(row.dataset.id);
+});
+document.getElementById('window').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  for (const x of document.querySelectorAll('#window button')) x.classList.toggle('on', x === b);
+  minutes = Number(b.dataset.min);
+  fitted = false;
+  loadLive();
 });
 
-async function loadFiles(files) {
-  for (const f of files) {
-    if (!/\.csv$/i.test(f.name) && f.type !== 'text/csv') continue;
-    loadText(f.name, await f.text());
+async function loadLive() {
+  const dot = document.getElementById('dot'), txt = document.getElementById('liveText');
+  try {
+    const r = await fetch(`${API}/api/live?minutes=${minutes}`);
+    if (!r.ok) throw new Error(r.status);
+    renderLive(await r.json());
+    dot.classList.remove('off');
+    txt.textContent = 'live · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    dot.classList.add('off');
+    txt.textContent = 'offline';
   }
-  rebuild();
 }
 
-document.getElementById('file').addEventListener('change', e => { loadFiles(e.target.files); e.target.value = ''; });
-document.getElementById('clear').addEventListener('click', () => { rows = []; selected = null; rebuild(); });
-for (const id of ['tStart', 'tEnd']) document.getElementById(id).addEventListener('input', () => render(false));
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/stats?days=30`);
+    if (!r.ok) throw new Error(r.status);
+    const s = await r.json();
+    const max = Math.max(1, ...s.daily.map(d => d.drones));
+    const byDay = new Map(s.daily.map(d => [d.day, d]));
+    const bars = [];
+    for (let i = 29; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const d = byDay.get(day);
+      const n = d ? d.drones : 0;
+      bars.push(`<div style="height:${(n / max) * 100}%" title="${day}: ${n} aircraft"></div>`);
+    }
+    document.getElementById('bars').innerHTML = bars.join('');
+    document.getElementById('statsText').textContent =
+      `${s.totals.drones || 0} different aircraft across ${s.daily.length} active days`;
+    hotLayer.clearLayers();
+    const hmax = Math.max(1, ...s.hotspots.map(h => h.drones));
+    for (const h of s.hotspots) {
+      L.circle([h.lat, h.lon], { radius: 250, stroke: false, fillColor: '#ff8a1f',
+        fillOpacity: .08 + .3 * (h.drones / hmax) })
+        .bindTooltip(`${h.drones} aircraft · ${h.points} reports`).addTo(hotLayer);
+    }
+  } catch {
+    document.getElementById('statsText').textContent = 'Stats unavailable right now.';
+  }
+}
 
-const drop = document.getElementById('drop');
-let depth = 0;
-window.addEventListener('dragenter', e => { e.preventDefault(); depth++; drop.classList.add('on'); });
-window.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; drop.classList.remove('on'); } });
-window.addEventListener('dragover', e => e.preventDefault());
-window.addEventListener('drop', e => {
-  e.preventDefault(); depth = 0; drop.classList.remove('on');
-  loadFiles(e.dataTransfer.files);
+document.getElementById('hot').addEventListener('change', e => {
+  if (e.target.checked) hotLayer.addTo(map); else hotLayer.remove();
+  if (lastLive) renderLive(lastLive);  // keep tracks drawn above hotspots
 });
+
+loadLive();
+loadStats();
+setInterval(loadLive, 30000);
+setInterval(loadStats, 10 * 60000);
 </script>
 </body>
 </html>

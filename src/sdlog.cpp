@@ -9,11 +9,18 @@
 namespace sdlog {
 namespace {
 
-// Cardputer / Cardputer ADV microSD wiring.
-constexpr int kSck = 40;
-constexpr int kMiso = 39;
-constexpr int kMosi = 14;
-constexpr int kCs = 12;
+// microSD wiring; defaults match the Cardputer / Cardputer ADV and other
+// boards override them with build flags.
+#ifndef SD_SCK_PIN
+#define SD_SCK_PIN 40
+#define SD_MISO_PIN 39
+#define SD_MOSI_PIN 14
+#define SD_CS_PIN 12
+#endif
+constexpr int kSck = SD_SCK_PIN;
+constexpr int kMiso = SD_MISO_PIN;
+constexpr int kMosi = SD_MOSI_PIN;
+constexpr int kCs = SD_CS_PIN;
 
 SPIClass g_spi(HSPI);
 File g_file;

@@ -25,6 +25,9 @@ size_t g_hop_idx = 0;
 uint32_t g_last_hop = 0;
 bool g_hopping = true;
 uint8_t g_channel = 6;
+bool g_wifi_paused = false;
+
+const wifi_promiscuous_filter_t kMgmtFilter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
 
 // ASTM F3411 vendor IE OUI + type in WiFi beacons.
 const uint8_t kAstmOui[] = {0xFA, 0x0B, 0xBC, 0x0D};
@@ -152,8 +155,7 @@ bool startWifi() {
   WiFi.setAutoReconnect(false);
   if (!WiFi.mode(WIFI_STA)) return false;
   WiFi.disconnect(false, false);
-  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
-  esp_wifi_set_promiscuous_filter(&filter);
+  esp_wifi_set_promiscuous_filter(&kMgmtFilter);
   esp_wifi_set_promiscuous_rx_cb(&onWifiPacket);
   if (esp_wifi_set_promiscuous(true) != ESP_OK) return false;
   esp_wifi_set_channel(g_channel, WIFI_SECOND_CHAN_NONE);
@@ -163,7 +165,7 @@ bool startWifi() {
 }  // namespace
 
 bool begin() {
-  g_queue = xQueueCreate(64, sizeof(Frame));
+  g_queue = xQueueCreate(128, sizeof(Frame));
   bool wifi_ok = startWifi();
   bool ble_ok = startBle();
   return wifi_ok && ble_ok;
@@ -172,7 +174,7 @@ bool begin() {
 bool receive(Frame& f) { return g_queue && xQueueReceive(g_queue, &f, 0) == pdTRUE; }
 
 void tick(uint32_t now_ms) {
-  if (!g_hopping || now_ms - g_last_hop < kDwellMs) return;
+  if (!g_hopping || g_wifi_paused || now_ms - g_last_hop < kDwellMs) return;
   g_last_hop = now_ms;
   g_hop_idx = (g_hop_idx + 1) % sizeof(kHopSeq);
   g_channel = kHopSeq[g_hop_idx];
@@ -190,6 +192,19 @@ void setHopping(bool on) {
 bool hopping() { return g_hopping; }
 uint8_t channel() { return g_channel; }
 uint32_t droppedFrames() { return g_dropped; }
+
+void pauseWifi() {
+  g_wifi_paused = true;
+  esp_wifi_set_promiscuous(false);
+}
+
+void resumeWifi() {
+  g_wifi_paused = false;
+  esp_wifi_set_promiscuous_filter(&kMgmtFilter);
+  esp_wifi_set_promiscuous_rx_cb(&onWifiPacket);
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(g_channel, WIFI_SECOND_CHAN_NONE);
+}
 
 const char* transportName(uint8_t t) {
   switch (t) {

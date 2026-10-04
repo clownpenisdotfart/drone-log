@@ -31,6 +31,11 @@ void setHopping(bool on);
 bool hopping();
 uint8_t channel();
 
+// Temporarily stops WiFi capture so the radio can join a network (used by
+// fixed nodes to upload). BLE scanning keeps running.
+void pauseWifi();
+void resumeWifi();
+
 uint32_t droppedFrames();
 const char* transportName(uint8_t t);
 
