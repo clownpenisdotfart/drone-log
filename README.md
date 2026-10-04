@@ -62,3 +62,17 @@ pio device monitor      # serial log
 
 The project uses the pioarduino build of platform-espressif32 (Arduino
 core 3.x) and fetches every library from GitHub.
+
+## Log viewer (copcity.net)
+
+`docs/` is a static web page for reviewing the SD card logs. Drop one or more
+`rid_NNNN.csv` files onto it to see each aircraft's track and operator
+position on a map, filter by time, and read the per-row detail. Files are
+parsed in the browser and never uploaded. Leaflet is vendored under
+`docs/vendor/`; only the OpenStreetMap tiles are fetched from the network.
+
+It is published with GitHub Pages at copcity.net (`docs/CNAME`): in the repo
+settings, set Pages to deploy from the `main` branch, `/docs` folder, and point
+the domain's DNS at GitHub Pages (apex `A` records 185.199.108.153,
+185.199.109.153, 185.199.110.153, 185.199.111.153, plus a `www` `CNAME` to
+`clownpenisdotfart.github.io`).
