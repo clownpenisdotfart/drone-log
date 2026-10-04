@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Log Files</title>
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<script src="vendor/leaflet/leaflet.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d0f; --panel: #12161a; --text: #e8eef2; --muted: #7d8a94;
+    --line: #222a31; --sel: #1a2a2c;
+    --orange: #ff8a1f; --green: #3dff8f; --teal: #19e6d4; --warn: #ff4d5e;
+    --accent: var(--orange);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: .02em; color: var(--orange); }
+  header h1 span { color: var(--teal); }
+  header .note { color: var(--muted); font-size: 12px; }
+  button, label.btn { font: inherit; border: 1px solid var(--line); background: var(--bg);
+    color: var(--text); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  button:hover, label.btn:hover { border-color: var(--teal); color: var(--teal); }
+  label.btn { border-color: var(--orange); color: var(--orange); }
+  main { display: grid; grid-template-columns: 320px 1fr; height: calc(100% - 50px); }
+  aside { overflow: auto; border-right: 1px solid var(--line); background: var(--panel); }
+  #map { height: 100%; }
+  .section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--teal); margin: 0 0 8px; font-weight: 600; }
+  .drone { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: start;
+    padding: 8px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .drone.sel { background: var(--sel); box-shadow: inset 3px 0 0 var(--green); }
+  .drone .sw { width: 12px; height: 12px; border-radius: 3px; margin-top: 3px; }
+  .drone .id { font-weight: 600; word-break: break-all; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .drone .meta { color: var(--muted); font-size: 12px; }
+  .drone input { margin-top: 3px; }
+  .emerg { color: var(--warn); font-weight: 600; }
+  #drop { position: fixed; inset: 0; background: rgba(255, 138, 31, .12); border: 3px dashed var(--orange); color: var(--orange);
+    display: none; align-items: center; justify-content: center; font-size: 20px; z-index: 2000; }
+  #drop.on { display: flex; }
+  #empty { padding: 24px 16px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, Menlo, Consolas, monospace; }
+  td:nth-child(2) { color: var(--green); }
+  th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+  #rows { max-height: 260px; overflow: auto; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 13px; }
+  .kv span:nth-child(odd) { color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--teal); }
+  input[type=checkbox] { accent-color: var(--green); }
+  #summaryText { color: var(--green); font-family: ui-monospace, Menlo, Consolas, monospace; }
+  #map { background: #0b0d0f; }
+  .leaflet-bar a { background: var(--panel); color: var(--orange); border-color: var(--line); }
+  .leaflet-bar a:hover { background: var(--sel); color: var(--teal); }
+  .leaflet-container .leaflet-control-attribution { background: rgba(18, 22, 26, .8); color: var(--muted); }
+  .leaflet-control-attribution a { color: var(--teal); }
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border-color: var(--line); }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+    aside { order: 2; border-right: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="./" style="color:inherit;text-decoration:none">DRONE<span>LOG</span></a></h1>
+  <label class="btn">Open CSV files<input id="file" type="file" accept=".csv,text/csv" multiple hidden></label>
+  <button id="clear">Clear</button>
+  <span class="note">Files are read in your browser and never uploaded.</span>
+</header>
+<main>
+  <aside>
+    <div id="empty">Drop <code>rid_NNNN.csv</code> logs from the Cardputer's SD card here, or use "Open CSV files".</div>
+    <div class="section" id="summary" hidden>
+      <h2>Loaded</h2>
+      <div id="summaryText"></div>
+      <div style="margin-top:10px">
+        <h2>Time window</h2>
+        <input type="range" id="tStart" min="0" max="1000" value="0">
+        <input type="range" id="tEnd" min="0" max="1000" value="1000">
+        <div class="meta" id="tLabel" style="font-size:12px;color:var(--muted)"></div>
+      </div>
+    </div>
+    <div id="list"></div>
+    <div class="section" id="detail" hidden>
+      <h2>Selected</h2>
+      <div class="kv" id="detailKv"></div>
+      <div id="rows" style="margin-top:10px"></div>
+    </div>
+  </aside>
+  <div id="map"></div>
+</main>
+<div id="drop">Drop CSV logs to load</div>
+
+<script>
+const COLORS = ['#ff8a1f', '#3dff8f', '#19e6d4', '#ff4fd8', '#ffe14d', '#4da6ff', '#b6ff3d', '#ff6b6b', '#a78bff', '#ffb36b'];
+
+const map = L.map('map', { preferCanvas: true }).setView([39.5, -98.35], 4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20, subdomains: 'abcd',
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+let rows = [];          // every parsed row, across files
+let drones = new Map(); // key -> {key, color, rows, visible}
+let selected = null;
+let tMin = 0, tMax = 0;
+
+// Minimal RFC 4180 CSV parser (handles quoted fields and doubled quotes).
+function parseCsv(text) {
+  const out = []; let row = []; let f = ''; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(f); f = ''; if (row.length > 1 || row[0] !== '') out.push(row); row = [];
+    } else f += c;
+  }
+  if (f !== '' || row.length) { row.push(f); out.push(row); }
+  return out;
+}
+
+const num = v => (v === '' || v == null) ? null : Number(v);
+
+function loadText(name, text) {
+  const table = parseCsv(text);
+  if (!table.length) return 0;
+  const head = table[0];
+  if (!head.includes('mac') || !head.includes('uptime_ms')) {
+    alert(name + ' does not look like a drone-log CSV.');
+    return 0;
+  }
+  const idx = Object.fromEntries(head.map((h, i) => [h, i]));
+  const g = (r, k) => r[idx[k]] ?? '';
+  // Rows without wall-clock time are placed relative to the first timed row
+  // in the same file using uptime_ms, when possible.
+  const parsed = table.slice(1).map(r => ({
+    file: name,
+    uptime: num(g(r, 'uptime_ms')),
+    utc: g(r, 'utc') ? Date.parse(g(r, 'utc')) : null,
+    transport: g(r, 'transport'), mac: g(r, 'mac'), rssi: num(g(r, 'rssi_dbm')),
+    id: g(r, 'uas_id'), idType: g(r, 'id_type'), uaType: g(r, 'ua_type'), status: g(r, 'status'),
+    lat: num(g(r, 'lat')), lon: num(g(r, 'lon')),
+    altGeo: num(g(r, 'alt_geo_m')), altBaro: num(g(r, 'alt_baro_m')), height: num(g(r, 'height_m')),
+    speed: num(g(r, 'speed_h_mps')), vspeed: num(g(r, 'speed_v_mps')), dir: num(g(r, 'direction_deg')),
+    opLat: num(g(r, 'op_lat')), opLon: num(g(r, 'op_lon')), opAlt: num(g(r, 'op_alt_m')),
+    operatorId: g(r, 'operator_id'), selfId: g(r, 'self_id'),
+  }));
+  const anchor = parsed.find(r => r.utc != null && r.uptime != null);
+  for (const r of parsed) {
+    if (r.utc == null && anchor && r.uptime != null) r.utc = anchor.utc + (r.uptime - anchor.uptime);
+    // Without any time reference, fall back to uptime so ordering still works.
+    r.t = r.utc ?? r.uptime ?? 0;
+    r.timed = r.utc != null;
+  }
+  rows.push(...parsed);
+  return parsed.length;
+}
+
+function rebuild() {
+  const prevVisible = new Map([...drones].map(([k, d]) => [k, d.visible]));
+  drones = new Map();
+  rows.sort((a, b) => a.t - b.t);
+  for (const r of rows) {
+    const key = r.id || r.mac;
+    if (!drones.has(key)) {
+      drones.set(key, { key, color: COLORS[drones.size % COLORS.length], rows: [],
+        visible: prevVisible.get(key) ?? true });
+    }
+    drones.get(key).rows.push(r);
+  }
+  tMin = rows.length ? rows[0].t : 0;
+  tMax = rows.length ? rows[rows.length - 1].t : 0;
+  document.getElementById('tStart').value = 0;
+  document.getElementById('tEnd').value = 1000;
+  if (selected && !drones.has(selected)) selected = null;
+  render(true);
+}
+
+function windowBounds() {
+  const a = Number(document.getElementById('tStart').value);
+  const b = Number(document.getElementById('tEnd').value);
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  return [tMin + (tMax - tMin) * lo / 1000, tMin + (tMax - tMin) * hi / 1000];
+}
+
+const fmtTime = (t, timed) => timed ? new Date(t).toISOString().replace('T', ' ').slice(0, 19) + 'Z'
+  : 'uptime ' + Math.round(t / 1000) + 's';
+const fmt = (v, d = 1, unit = '') => v == null || Number.isNaN(v) ? '–' : v.toFixed(d) + unit;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function render(fit) {
+  const has = rows.length > 0;
+  document.getElementById('empty').hidden = has;
+  document.getElementById('summary').hidden = !has;
+  layer.clearLayers();
+  if (!has) {
+    document.getElementById('list').innerHTML = '';
+    document.getElementById('detail').hidden = true;
+    return;
+  }
+  const [lo, hi] = windowBounds();
+  const timed = rows.some(r => r.timed);
+  document.getElementById('tLabel').textContent = fmtTime(lo, timed) + '  →  ' + fmtTime(hi, timed);
+  const files = new Set(rows.map(r => r.file));
+  document.getElementById('summaryText').textContent =
+    `${rows.length} rows, ${drones.size} aircraft, ${files.size} file${files.size > 1 ? 's' : ''}`;
+
+  const bounds = [];
+  const list = [];
+  for (const d of drones.values()) {
+    const inWin = d.rows.filter(r => r.t >= lo && r.t <= hi);
+    const pts = inWin.filter(r => r.lat != null && r.lon != null);
+    const ops = inWin.filter(r => r.opLat != null && r.opLon != null);
+    const last = inWin[inWin.length - 1] || d.rows[d.rows.length - 1];
+    const emerg = inWin.some(r => r.status === 'EMERG');
+    const maxH = Math.max(...inWin.map(r => r.height ?? r.altGeo ?? -Infinity));
+
+    if (d.visible && pts.length) {
+      const ll = pts.map(r => [r.lat, r.lon]);
+      const isSel = d.key === selected;
+      L.polyline(ll, { color: d.color, weight: isSel ? 5 : 3, opacity: isSel ? 1 : .8 })
+        .on('click', () => select(d.key)).addTo(layer);
+      const p = pts[pts.length - 1];
+      L.circleMarker([p.lat, p.lon], { radius: isSel ? 8 : 6, color: '#0b0d0f', weight: 2,
+        fillColor: d.color, fillOpacity: 1 })
+        .bindTooltip(esc(d.key)).on('click', () => select(d.key)).addTo(layer);
+      bounds.push(...ll);
+    }
+    if (d.visible && ops.length) {
+      const o = ops[ops.length - 1];
+      L.circleMarker([o.opLat, o.opLon], { radius: 6, color: d.color, weight: 3, fillOpacity: 0 })
+        .bindTooltip('Operator / takeoff: ' + esc(d.key)).addTo(layer);
+      bounds.push([o.opLat, o.opLon]);
+    }
+    list.push(`<div class="drone${d.key === selected ? ' sel' : ''}" data-key="${esc(d.key)}">
+      <input type="checkbox" ${d.visible ? 'checked' : ''} data-toggle="${esc(d.key)}" title="Show on map">
+      <div><div class="id"><span class="sw" style="display:inline-block;background:${d.color};margin-right:6px;vertical-align:-1px"></span>${esc(d.key)}</div>
+        <div class="meta">${esc(last.uaType || 'unknown type')} · ${esc([...new Set(d.rows.map(r => r.transport))].join(', '))}
+          ${emerg ? ' · <span class="emerg">EMERGENCY</span>' : ''}</div>
+        <div class="meta">${inWin.length} rows in window · max ${fmt(Number.isFinite(maxH) ? maxH : null, 0, ' m')}</div></div>
+      <div class="meta">${fmtTime(last.t, last.timed).slice(11)}</div>
+    </div>`);
+  }
+  document.getElementById('list').innerHTML = list.join('');
+  if (fit && bounds.length) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+  renderDetail(lo, hi);
+}
+
+function renderDetail(lo, hi) {
+  const box = document.getElementById('detail');
+  const d = selected && drones.get(selected);
+  if (!d) { box.hidden = true; return; }
+  box.hidden = false;
+  const inWin = d.rows.filter(r => r.t >= lo && r.t <= hi);
+  const last = inWin[inWin.length - 1] || d.rows[d.rows.length - 1];
+  const first = inWin[0] || d.rows[0];
+  const kv = [
+    ['ID', d.key], ['MACs', [...new Set(d.rows.map(r => r.mac))].join(', ')],
+    ['Type', last.uaType || '–'], ['Operator ID', last.operatorId || '–'], ['Self ID', last.selfId || '–'],
+    ['First', fmtTime(first.t, first.timed)], ['Last', fmtTime(last.t, last.timed)],
+    ['Last position', last.lat != null ? `${last.lat.toFixed(6)}, ${last.lon.toFixed(6)}` : '–'],
+    ['Operator', last.opLat != null ? `${last.opLat.toFixed(6)}, ${last.opLon.toFixed(6)}` : '–'],
+  ];
+  document.getElementById('detailKv').innerHTML = kv.map(([k, v]) => `<span>${k}</span><span>${esc(v)}</span>`).join('');
+  const body = inWin.slice(-500).reverse().map(r => `<tr>
+    <td>${fmtTime(r.t, r.timed).slice(11)}</td><td>${esc(r.status)}</td>
+    <td>${r.lat != null ? r.lat.toFixed(5) + ', ' + r.lon.toFixed(5) : '–'}</td>
+    <td>${fmt(r.height ?? r.altGeo, 0)}</td><td>${fmt(r.speed, 1)}</td><td>${fmt(r.rssi, 0)}</td></tr>`).join('');
+  document.getElementById('rows').innerHTML = `<table><thead><tr><th>Time</th><th>Status</th><th>Position</th>
+    <th>Hgt m</th><th>m/s</th><th>dBm</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function select(key) {
+  selected = selected === key ? null : key;
+  render(false);
+  const d = selected && drones.get(selected);
+  const pts = d ? d.rows.filter(r => r.lat != null).map(r => [r.lat, r.lon]) : [];
+  if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 18 });
+}
+
+document.getElementById('list').addEventListener('click', e => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) { drones.get(t.dataset.toggle).visible = t.checked; render(false); return; }
+  const row = e.target.closest('.drone');
+  if (row) select(row.dataset.key);
+});
+
+async function loadFiles(files) {
+  for (const f of files) {
+    if (!/\.csv$/i.test(f.name) && f.type !== 'text/csv') continue;
+    loadText(f.name, await f.text());
+  }
+  rebuild();
+}
+
+document.getElementById('file').addEventListener('change', e => { loadFiles(e.target.files); e.target.value = ''; });
+document.getElementById('clear').addEventListener('click', () => { rows = []; selected = null; rebuild(); });
+for (const id of ['tStart', 'tEnd']) document.getElementById(id).addEventListener('input', () => render(false));
+
+const drop = document.getElementById('drop');
+let depth = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); depth++; drop.classList.add('on'); });
+window.addEventListener('dragleave', () => { if (--depth <= 0) { depth = 0; drop.classList.remove('on'); } });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => {
+  e.preventDefault(); depth = 0; drop.classList.remove('on');
+  loadFiles(e.dataTransfer.files);
+});
+</script>
+</body>
+</html>

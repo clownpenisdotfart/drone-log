@@ -1,0 +1,8 @@
+.pio/
+.vscode/
+include/node_config.h
+
+# Local Cloudflare dev state
+server/.wrangler/
+server/.dev.vars
+server/node_modules/

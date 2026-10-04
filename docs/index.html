@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drone Map</title>
+<meta name="description" content="Community map of drones broadcasting FAA Remote ID around the city.">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="config.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d0f; --panel: #12161a; --text: #e8eef2; --muted: #7d8a94;
+    --line: #222a31; --sel: #1a2a2c;
+    --orange: #ff8a1f; --green: #3dff8f; --teal: #19e6d4; --warn: #ff4d5e;
+    --mono: ui-monospace, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--teal); }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; height: 50px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: .02em; color: var(--orange); }
+  header h1 span { color: var(--teal); }
+  header nav { margin-left: auto; display: flex; gap: 14px; font-size: 13px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; color: var(--green); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  main { display: grid; grid-template-columns: 340px 1fr; height: calc(100% - 50px); }
+  aside { overflow: auto; border-right: 1px solid var(--line); background: var(--panel); }
+  #map { height: 100%; background: var(--bg); }
+  .section { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--teal);
+    margin: 0 0 8px; font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .tile b { display: block; font: 700 20px/1.1 var(--mono); color: var(--orange); }
+  .tile span { font-size: 11px; color: var(--muted); }
+  .tile:nth-child(2) b { color: var(--green); }
+  .tile:nth-child(3) b { color: var(--teal); }
+  .drone { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; padding: 8px 16px;
+    border-bottom: 1px solid var(--line); cursor: pointer; }
+  .drone:hover, .drone.sel { background: var(--sel); }
+  .drone .sw { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; }
+  .drone .id { font: 600 13px var(--mono); word-break: break-all; }
+  .meta { color: var(--muted); font-size: 12px; }
+  .emerg { color: var(--warn); font-weight: 700; }
+  .empty { padding: 12px 16px; color: var(--muted); }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 70px; }
+  .bars div { flex: 1; background: var(--orange); border-radius: 2px 2px 0 0; min-height: 2px; opacity: .85; }
+  .bars div:hover { background: var(--teal); }
+  .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .seg button { font: 12px var(--mono); background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+  .seg button.on { color: var(--orange); border-color: var(--orange); }
+  label.toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-top: 8px; }
+  input[type=checkbox] { accent-color: var(--green); }
+  .about { font-size: 12px; color: var(--muted); }
+  .about p { margin: 0 0 8px; }
+  .leaflet-bar a { background: var(--panel); color: var(--orange); border-color: var(--line); }
+  .leaflet-bar a:hover { background: var(--sel); color: var(--teal); }
+  .leaflet-container .leaflet-control-attribution { background: rgba(18, 22, 26, .8); color: var(--muted); }
+  .leaflet-tooltip { background: var(--panel); color: var(--text); border-color: var(--line); font-family: var(--mono); }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+    aside { order: 2; border-right: 0; border-top: 1px solid var(--line); }
+    header nav a.files { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>DRONE<span>LOG</span></h1>
+  <span class="live"><span class="dot off" id="dot"></span><span id="liveText">connecting</span></span>
+  <nav><a href="#about">About</a><a class="files" href="logs.html">Open log files</a></nav>
+</header>
+<main>
+  <aside>
+    <div class="section">
+      <h2>Right now</h2>
+      <div class="seg" id="window">
+        <button data-min="30" class="on">30 min</button><button data-min="180">3 h</button><button data-min="1440">24 h</button>
+      </div>
+      <div class="tiles">
+        <div class="tile"><b id="nDrones">–</b><span>aircraft</span></div>
+        <div class="tile"><b id="nAir">–</b><span>airborne</span></div>
+        <div class="tile"><b id="nNodes">–</b><span>receivers online</span></div>
+      </div>
+    </div>
+    <div id="list"><div class="empty">Waiting for data…</div></div>
+    <div class="section">
+      <h2>Last 30 days</h2>
+      <div class="meta" id="statsText">–</div>
+      <div class="bars" id="bars" style="margin-top:8px"></div>
+      <div class="meta" style="margin-top:4px">aircraft heard per day</div>
+      <label class="toggle"><input type="checkbox" id="hot"> Show activity hotspots on the map</label>
+    </div>
+    <div class="section about" id="about">
+      <h2>About</h2>
+      <p>Most drones in the US must broadcast a public Remote ID signal with their position, height and speed.
+        Community receivers around town pick up those broadcasts and this map shows them.</p>
+      <p>Receivers only listen. They never transmit to or interfere with drones. Only aircraft are shown:
+        no phones, cars or people are tracked, and pilot locations are not published.</p>
+      <p>Some aircraft, including some public-safety drones, may not broadcast Remote ID, and receivers only
+        cover part of the city. A quiet map does not mean nothing is flying.</p>
+      <p>Have a log from a handheld receiver? <a href="logs.html">Open it here</a>; it stays in your browser.</p>
+    </div>
+  </aside>
+  <div id="map"></div>
+</main>
+
+<script>
+const API = (window.DRONELOG_API || '').replace(/\/$/, '');
+const COLORS = ['#ff8a1f', '#3dff8f', '#19e6d4', '#ff4fd8', '#ffe14d', '#4da6ff', '#b6ff3d', '#ff6b6b', '#a78bff', '#ffb36b'];
+const STALE_MS = 2 * 60 * 1000;   // fade aircraft not heard for this long
+const NODE_ONLINE_MS = 10 * 60 * 1000;
+
+const map = L.map('map', { preferCanvas: true }).setView([39.5, -98.35], 4);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20, subdomains: 'abcd', attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+}).addTo(map);
+const trackLayer = L.layerGroup().addTo(map);
+const hotLayer = L.layerGroup();
+
+const colorOf = new Map();
+const colorFor = id => {
+  if (!colorOf.has(id)) colorOf.set(id, COLORS[colorOf.size % COLORS.length]);
+  return colorOf.get(id);
+};
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ago = ms => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? s + 's' : s < 3600 ? Math.round(s / 60) + 'm' : Math.round(s / 3600) + 'h';
+};
+
+let minutes = 30;
+let selected = null;
+let fitted = false;
+let lastLive = null;
+
+function renderLive(data) {
+  lastLive = data;
+  const now = Date.now();
+  trackLayer.clearLayers();
+  const bounds = [];
+  const drones = [...data.drones].sort((a, b) => b.last_ts - a.last_ts);
+  for (const d of drones) {
+    const c = colorFor(d.id);
+    const stale = now - d.last_ts > STALE_MS;
+    const ll = d.points.map(p => [p[1], p[2]]);
+    const isSel = d.id === selected;
+    L.polyline(ll, { color: c, weight: isSel ? 5 : 3, opacity: stale ? .35 : .9 })
+      .on('click', () => select(d.id)).addTo(trackLayer);
+    const p = d.points[d.points.length - 1];
+    L.circleMarker([p[1], p[2]], { radius: isSel ? 8 : 6, color: '#0b0d0f', weight: 2,
+      fillColor: d.status === 'EMERG' ? '#ff4d5e' : c, fillOpacity: stale ? .4 : 1 })
+      .bindTooltip(`${esc(d.id)}<br>${p[3] != null ? Math.round(p[3]) + ' m · ' : ''}${ago(now - d.last_ts)} ago`)
+      .on('click', () => select(d.id)).addTo(trackLayer);
+    bounds.push(...ll);
+  }
+  if (!fitted && bounds.length) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 }); fitted = true; }
+
+  const online = data.nodes.filter(n => now - n.last_seen < NODE_ONLINE_MS).length;
+  document.getElementById('nDrones').textContent = drones.length;
+  document.getElementById('nAir').textContent = drones.filter(d => d.status === 'airborne' && now - d.last_ts < STALE_MS).length;
+  document.getElementById('nNodes').textContent = `${online}/${data.nodes.length}`;
+  document.getElementById('list').innerHTML = drones.length ? drones.map(d => {
+    const p = d.points[d.points.length - 1];
+    return `<div class="drone${d.id === selected ? ' sel' : ''}" data-id="${esc(d.id)}">
+      <span class="sw" style="background:${colorFor(d.id)}"></span>
+      <div><div class="id">${esc(d.id)}</div>
+        <div class="meta">${esc(d.ua_type || 'aircraft')} · ${d.status === 'EMERG' ? '<span class="emerg">EMERGENCY</span>' : esc(d.status || '')}
+          ${p[3] != null ? ' · ' + Math.round(p[3]) + ' m' : ''}${d.speed != null ? ' · ' + d.speed.toFixed(1) + ' m/s' : ''}</div></div>
+      <div class="meta">${ago(now - d.last_ts)}</div></div>`;
+  }).join('') : `<div class="empty">No aircraft heard in the last ${minutes >= 60 ? minutes / 60 + ' h' : minutes + ' min'}.</div>`;
+}
+
+function select(id) {
+  selected = selected === id ? null : id;
+  if (lastLive) renderLive(lastLive);
+  const d = lastLive && lastLive.drones.find(x => x.id === selected);
+  if (d) map.fitBounds(d.points.map(p => [p[1], p[2]]), { padding: [50, 50], maxZoom: 17 });
+}
+
+document.getElementById('list').addEventListener('click', e => {
+  const row = e.target.closest('.drone');
+  if (row) select(row.dataset.id);
+});
+document.getElementById('window').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  for (const x of document.querySelectorAll('#window button')) x.classList.toggle('on', x === b);
+  minutes = Number(b.dataset.min);
+  fitted = false;
+  loadLive();
+});
+
+async function loadLive() {
+  const dot = document.getElementById('dot'), txt = document.getElementById('liveText');
+  try {
+    const r = await fetch(`${API}/api/live?minutes=${minutes}`);
+    if (!r.ok) throw new Error(r.status);
+    renderLive(await r.json());
+    dot.classList.remove('off');
+    txt.textContent = 'live · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    dot.classList.add('off');
+    txt.textContent = 'offline';
+  }
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/stats?days=30`);
+    if (!r.ok) throw new Error(r.status);
+    const s = await r.json();
+    const max = Math.max(1, ...s.daily.map(d => d.drones));
+    const byDay = new Map(s.daily.map(d => [d.day, d]));
+    const bars = [];
+    for (let i = 29; i >= 0; i--) {
+      const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      const d = byDay.get(day);
+      const n = d ? d.drones : 0;
+      bars.push(`<div style="height:${(n / max) * 100}%" title="${day}: ${n} aircraft"></div>`);
+    }
+    document.getElementById('bars').innerHTML = bars.join('');
+    document.getElementById('statsText').textContent =
+      `${s.totals.drones || 0} different aircraft across ${s.daily.length} active days`;
+    hotLayer.clearLayers();
+    const hmax = Math.max(1, ...s.hotspots.map(h => h.drones));
+    for (const h of s.hotspots) {
+      L.circle([h.lat, h.lon], { radius: 250, stroke: false, fillColor: '#ff8a1f',
+        fillOpacity: .08 + .3 * (h.drones / hmax) })
+        .bindTooltip(`${h.drones} aircraft · ${h.points} reports`).addTo(hotLayer);
+    }
+  } catch {
+    document.getElementById('statsText').textContent = 'Stats unavailable right now.';
+  }
+}
+
+document.getElementById('hot').addEventListener('change', e => {
+  if (e.target.checked) hotLayer.addTo(map); else hotLayer.remove();
+  if (lastLive) renderLive(lastLive);  // keep tracks drawn above hotspots
+});
+
+loadLive();
+loadStats();
+setInterval(loadLive, 30000);
+setInterval(loadStats, 10 * 60000);
+</script>
+</body>
+</html>
